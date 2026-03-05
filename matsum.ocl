@@ -1,0 +1,33 @@
+kernel void matinit(global int * mat, uint nrows, uint ncols){
+    uint c = get_global_id(0);
+    uint r = get_global_id(1);
+    if(c < ncols && r < nrows){
+        mat[r * ncols + c] = c - r;
+    } 
+}
+
+kernel void matinit_align(global int * mat, uint nrows, uint ncols, uint pitch){
+    uint c = get_global_id(0);
+    uint r = get_global_id(1);
+    if(c < ncols && r < nrows){
+        mat[r * pitch + c] = c - r;
+    } 
+}
+
+
+kernel void matsum(global int * mat_a, global int * mat_b, global int * mat_r, uint nrows, uint ncols){
+    uint c = get_global_id(0);
+    uint r = get_global_id(1);
+    if(c < ncols && r < nrows){
+        mat_r[r * ncols + c] = mat_a[r * ncols + c] + mat_b[r * ncols + c];
+    }
+}
+
+
+kernel void matsum_align(global int * mat_a, global int * mat_b, global int * mat_r, uint nrows, uint ncols, uint pitch){
+    uint c = get_global_id(0);
+    uint r = get_global_id(1);
+    if(c < ncols && r < nrows){
+        mat_r[r * pitch + c] = mat_a[r * pitch + c] + mat_b[r * pitch + c];
+    }
+}

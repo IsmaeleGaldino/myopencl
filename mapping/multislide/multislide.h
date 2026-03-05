@@ -1,0 +1,15 @@
+unsigned long * multi_slide_mapping(double corner_west, 
+    const double corner_north, 
+    const double res, 
+    const int span_ew, 
+    const int span_ns,
+    const int radius,
+    const int dist,
+    const int slides,
+    const int lws_rows,
+    const int lws_cols,
+    const double * easting,
+    const double * northing,
+    const unsigned long rows, 
+    const unsigned long cols
+);

@@ -1,0 +1,28 @@
+kernel void matrix_multiplication(global int * restrict matrix_a,global int * restrict matrix_b, global int * restrict matrix_r,uint rows_a, uint cols_a, uint cols_b){
+    uint i = get_global_id(0);
+    uint j = get_global_id(1);
+    if(i==0 && j==0){
+        printf("lws: %u %u \n",get_local_size(0),get_local_size(1));
+    }
+    if(i>=rows_a || j>=cols_b)
+        return;
+    int sum=0;
+    for(int h=0;h<cols_a;h++){
+       sum+=matrix_a[i*cols_a+h]*matrix_b[j*cols_a+h]; 
+    }
+    matrix_r[i*cols_b+j]=sum;
+}
+
+
+kernel void matrix_generator(global int* matrix,uint cols, uint rand){
+    uint i = get_global_id(0);
+    uint j = get_global_id(1);
+    matrix[i*cols+j]=((rand)*cos((float)i+j)+(rand)*sin((float)i-j));
+}
+
+
+kernel void matrix_traspose(global int * restrict matrix_in, global int * restrict matrix_out,uint cols){
+    int i = get_global_id(0);
+    int j = get_global_id(1);
+    matrix_out[i*cols+j]=matrix_in[j*cols+i];
+}

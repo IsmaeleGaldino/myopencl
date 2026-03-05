@@ -1,0 +1,42 @@
+kernel void vec_init(global int* vec, unsigned int nels){
+    unsigned int i = get_global_id(0);
+    if(i>=nels)
+        return;
+    vec[i] = i;
+}
+
+
+//sarebbe stato ideale usare 2 cache separate di int piuttosto che una sola di int2
+//cache[0].s0 e cache[lws+1].s7 non vengono mai lette, questo porta a uno spreco di 8 byte
+kernel void vec_smooth_lm(global int8 * vec_in,global int8 * vec_out,local int2 * cache){
+    size_t gi = get_global_id(0);
+    size_t li = get_local_id(0);
+    size_t lws = get_local_size(0);
+    size_t gws = get_global_size(0);
+    int8 div =(int8) (2,3,3,3,3,3,3,2);
+    int8 vec = vec_in[gi];
+    cache[li+1].xy=vec.s07; 
+    if(li == 0 && gi>0)
+        cache[0]=vec_in[gi-1].s07;
+    if(li == lws - 1 && gi<gws-1)
+        cache[lws+1]=vec_in[gi+1].s07;
+    
+    barrier(CLK_LOCAL_MEM_FENCE);
+
+    int8 acc=vec;
+    acc.s0123+=vec.s1234;
+    acc.s456+=vec.s567;
+
+    acc.s1234+=vec.s0123;
+    acc.s567+=vec.s456;
+
+    if(gi>0){
+        div.s0=3;
+        acc.s0+=cache[li].y;
+    }
+    if(gi<gws-1){
+        div.s7=3;
+        acc.s7+=cache[li+2].x;
+    }
+    vec_out[gi]=acc/div;
+}

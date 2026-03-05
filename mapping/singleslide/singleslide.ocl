@@ -1,0 +1,99 @@
+#pragma OPENCL EXTENSION cl_khr_fp64 : enable
+
+kernel void grid_init(
+    global size_t * restrict index,
+    global double * restrict distance,
+    unsigned long nels
+){
+    size_t i = get_global_id(0);
+    index[i] = nels;
+    distance[i] = HUGE_VAL;
+}
+
+kernel void neighbor_single_slide(
+    double corner_west, 
+    double corner_north,
+    double res,
+    int span_ew,
+    int span_ns,
+    int radius,
+    global const double * restrict easting,
+    global const double * restrict northing, 
+    ulong nels,
+    global size_t * restrict out_index,
+    global double * restrict out_dist,
+    local int * restrict cache_index,
+    local double * restrict cache_dist
+){
+    size_t i = get_local_id(0);
+    size_t lws = get_local_size(0);
+    double n , e , offset_n , offset_e , delta;
+    int base_row , base_col , grid_cell , neighbor_n;
+
+    neighbor_n = ((radius * 2) + 1) * ((radius * 2) + 1);
+
+    size_t rounded_nels = ((nels+lws-1)/lws)*lws;
+
+    for(size_t gi = i ; gi < rounded_nels ; gi+=lws){
+        if(gi < nels){
+            n = northing[gi];
+            e = easting[gi];
+            offset_e = (e - corner_west)/res;
+            offset_n = (corner_north - n)/res;
+            base_row = floor(offset_n);
+            base_col = floor(offset_e);
+        
+            int j=0;
+            for(int row = -radius ; row <= radius ; row++){
+                for(int col = -radius ; col <= radius ; col++){
+                    grid_cell = -1;
+                    delta = HUGE_VAL;
+                    if((base_col + col) >= 0 && (base_col + col) < span_ew && (base_row + row ) >= 0 && (base_row + row) < span_ns){
+                        grid_cell = ((base_row+row)*span_ew)+base_col+col;
+                        delta = (base_col+col+0.5-offset_e) * (base_col+col+0.5-offset_e) + (base_row+row+0.5-offset_n) * (base_row+row+0.5-offset_n);
+                    }
+                    cache_index[i*neighbor_n+j] = grid_cell;
+                    cache_dist[i*neighbor_n+j] = delta;
+                    j++;
+                }
+            }
+        } else {
+            for(int j=0 ; j<neighbor_n ; j++)
+                cache_index[i*neighbor_n+j] = -1;
+        }
+
+        barrier(CLK_LOCAL_MEM_FENCE); 
+
+        bool invalid = false;
+        for(int k=0; k < neighbor_n ; k++){
+            if (cache_index[i*neighbor_n+k]==-1)
+                continue;
+            for(int j=0 ; j < lws ; j++){
+                for(int l=0; l < neighbor_n ; l++){
+                    if( cache_index[i*neighbor_n+k] == cache_index[j*neighbor_n+l] && cache_dist[i*neighbor_n+k] > cache_dist[j*neighbor_n+l] ){
+                       cache_index[i*neighbor_n+k] = -1;
+                       invalid = true;
+                       break;
+                    }         
+                }
+                if(invalid){
+                    invalid = false;
+                    break;
+                }
+            }
+        }
+        
+        int i_out;
+        double dist;
+        for(int k = 0 ; k < neighbor_n ; k++){
+            i_out = cache_index[i*neighbor_n+k];
+            dist = cache_dist[i*neighbor_n + k];
+            if(i_out >= 0 && out_dist[i_out] > dist){
+                out_index[i_out] = gi;
+                out_dist[i_out] = dist;
+            }
+        }   
+
+        barrier(CLK_LOCAL_MEM_FENCE); 
+    }
+}
