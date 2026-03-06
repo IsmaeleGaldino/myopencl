@@ -12,3 +12,6 @@ Evolution of the singleslide solution with the purpose of extends more workgroup
 
 ##### mapping/geomapping
 Alternative algorithm based on an inverse mapping approach. This version is still experimental.
+
+## basic-kernels
+This repo contains various kernels implementing basic algorithms for matrix and vector operations.
