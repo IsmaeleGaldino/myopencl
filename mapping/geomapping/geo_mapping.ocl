@@ -1,0 +1,172 @@
+#pragma OPENCL EXTENSION cl_khr_fp64 : enable
+
+kernel void grid_init(
+    global size_t * restrict grid_index,
+    global double * restrict grid_dist,
+    unsigned long nels,
+    unsigned long bound
+){
+    size_t i = get_global_id(0);
+    if(i<bound){
+        grid_index[i] = nels;
+        grid_dist[i] = HUGE_VAL;
+    }
+}
+
+kernel void build_vectormap(
+    ulong cols,
+    ulong rows,
+    global const double * restrict input,
+    global double2 * restrict vectormap
+){
+    size_t gi = get_global_id(0);
+    
+    size_t row = gi/cols;
+    if (row >= rows)
+        return;
+
+    size_t col  = gi - (row * cols);
+    if(col >= cols)
+        return;
+    
+
+    double v , v_left, v_right , v_up , v_down; 
+    double d_left, d_right, d_up, d_down, d_hor, d_ver;
+    int nels_hor = 0;
+    int nels_ver = 0;
+    v = input [(row * cols) + col];
+    v_left = v;
+    if (col > 0){
+        v_left = input [(row * cols) + col -1];
+        nels_hor ++;
+    }
+    v_right = v;
+    if (col < (cols -1)){
+        v_right = input [(row * cols) + col +1];
+        nels_hor ++;
+    }
+    v_up = v;
+    if (row > 0){
+        v_up = input [((row - 1) * cols) + col];
+        nels_ver ++;
+    }
+    v_down = v;
+    if (row  < (rows -1)){
+        v_down = input [((row + 1) * cols) + col];
+        nels_ver ++;
+    }
+
+    d_left = v - v_left;
+    d_right = v_right - v;
+    d_up = v_up - v;
+    d_down = v - v_down;
+
+    
+    d_hor = (d_left + d_right) / nels_hor;
+    if(d_left * d_right < 0){
+        if ((d_left * d_left) < (d_right * d_right))
+            d_hor = d_left;
+        else
+            d_hor = d_right;
+    }
+
+    d_ver = (d_up + d_down) / nels_ver;
+    if(d_up * d_down < 0){
+        if ( (d_up * d_up)  < (d_down * d_down) )
+            d_ver =  d_up;
+        else 
+            d_ver = d_down;
+    }
+    vectormap[(row * cols) + col] = (double2) (d_hor,d_ver);
+}
+
+kernel void grid_jumping(
+    double corner_west,
+    double corner_north,
+    double res,
+    ulong cols,
+    ulong rows,
+    int jumps,
+    int radius,
+    global const double * restrict northing,
+    global const double * restrict easting,
+    global const double2 * restrict northing_vm,
+    global const double2 * restrict easting_vm,
+    global size_t * restrict grid_index,
+    global size_t * restrict grid_dist
+){
+    size_t global_col = get_global_id(0);
+    size_t global_row = get_global_id(1);
+    size_t gws_col = get_global_size(0);
+    size_t gws_row = get_global_size(1);
+
+    int index_col = global_col;
+    int index_row = global_row;
+
+    double e_dest = (corner_west + (0.5 * res)) + (res * global_col);
+    double n_dest = (corner_north - (0.5 * res)) - (res * global_row);
+
+    double delta_n, old_delta_n = HUGE_VAL;
+    double delta_e, old_delta_e = HUGE_VAL;
+
+    double n;
+    double e;
+
+    double2 vector_n;
+    double2 vector_e;
+
+    double vector_n_module;
+    double vector_e_module;
+
+    for(int t = 0 ; t < jumps; t++){
+        n = northing[(index_row * cols) + index_col];
+        e = easting[(index_row * cols) + index_col];
+
+        delta_n = n - n_dest;
+        delta_e = e_dest - e;  
+        
+        if(fabs(delta_e) > fabs(old_delta_e) && fabs(delta_n) > fabs(old_delta_n)){
+            break;
+        }
+
+        old_delta_e = delta_e;
+        old_delta_n = delta_n;
+
+        vector_n = northing_vm[(index_row * cols) + index_col];
+        vector_e = easting_vm[(index_row * cols) + index_col];
+
+        vector_n_module = sqrt((vector_n.x * vector_n.x) + (vector_n.y * vector_n.y));
+        vector_e_module = sqrt((vector_e.x * vector_e.x) + (vector_e.y * vector_e.y));
+
+       
+
+        double vector_n_factor = (delta_n / vector_n_module);
+        double vector_e_factor = (delta_e / vector_e_module);
+
+        index_col += ((vector_n_factor * vector_n.x)/2 + (vector_e_factor * vector_e.x)/2);
+        index_row += ((vector_n_factor * vector_n.y)/2 + (vector_e_factor * vector_e.y)/2);
+ 
+        if(global_col == 0 && global_row == 0){
+            printf("Dump1: vector_n.x:%g, vector_n.y:%g, vector_e.x:%g, vector_e.y:%g\n",vector_n.x,vector_n.y,vector_e.x,vector_e.y);
+            printf("Dump2: delta_n:%g, old_delta_n:%g, delta_e:%g, old_delta_e:%g,  vector_n_module:%g, vector_e_module:%g, vector_n_factor:%g, vector_e_factor:%g, col_move:%g, row_move:%g\n",delta_n,old_delta_n,delta_e,old_delta_e,vector_n_module,vector_e_module,vector_n_factor,vector_e_factor,((vector_n_factor * vector_n.x)/2 + (vector_e_factor * vector_e.x)/2),((vector_n_factor * vector_n.y)/2 + (vector_e_factor * vector_e.y)/2));
+        }
+        if(index_col < 0){
+            index_col = 0;
+        }
+
+        if (index_col >= cols){
+            index_col = cols - 1;
+        }
+
+        if(index_row < 0){
+            index_row = 0;
+        }
+
+        if (index_row >= rows){
+            index_row = rows - 1;
+        }
+    }
+
+    grid_index[(global_row * gws_col) + global_col] = (index_row * cols) + index_col;  
+    grid_dist[(global_row * gws_col) + global_col] = (delta_n * delta_n) + (delta_e * delta_e);
+}
